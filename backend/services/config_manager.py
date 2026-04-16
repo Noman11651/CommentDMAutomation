@@ -31,10 +31,10 @@ def _default_config() -> dict[str, Any]:
     return {
         "reels": {},
         "default": {
-            "trigger_keyword": "info",
-            "dm_message": "Thanks for your interest! Check your DMs.",
-            "comment_reply": "Sent you a DM!",
-            "active": True,
+            "trigger_keyword": "",
+            "dm_message": "",
+            "comment_reply": "",
+            "active": False,
         },
     }
 
@@ -261,6 +261,11 @@ def get_all_configs():
 def get_reel_config(media_id: str):
     config = _load_config()
     return config["reels"].get(media_id, config["default"])
+
+
+def is_reel_configured(media_id: str) -> bool:
+    config = _load_config()
+    return media_id in config["reels"]
 
 
 def update_reel_config(media_id: str, new_config: dict):
