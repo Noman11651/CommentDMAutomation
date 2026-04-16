@@ -5,6 +5,10 @@ from typing import Any, Optional, Tuple
 import requests
 
 REDIS_CONFIG_KEY = os.environ.get("REELS_CONFIG_KV_KEY", "commentdm:reels_config_v1")
+SUPABASE_TABLE = os.environ.get("SUPABASE_CONFIG_TABLE", "reels_config")
+SUPABASE_KEY_COLUMN = os.environ.get("SUPABASE_CONFIG_KEY_COLUMN", "config_key")
+SUPABASE_VALUE_COLUMN = os.environ.get("SUPABASE_CONFIG_VALUE_COLUMN", "config_value")
+SUPABASE_CONFIG_KEY = os.environ.get("SUPABASE_CONFIG_KEY", "default")
 
 
 def _backend_dir():
@@ -35,6 +39,12 @@ def _default_config() -> dict[str, Any]:
     }
 
 
+def _supabase_credentials() -> Tuple[str, str]:
+    base_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    return base_url, service_key
+
+
 def _kv_credentials() -> Tuple[str, str]:
     url = (
         os.environ.get("KV_REST_API_URL")
@@ -47,10 +57,18 @@ def _kv_credentials() -> Tuple[str, str]:
     return url, token
 
 
-def _use_redis() -> bool:
+def _storage_backend() -> str:
+    # explicit override
     mode = os.environ.get("CONFIG_STORAGE", "").strip().lower()
     if mode == "file":
-        return False
+        return "file"
+    if mode == "supabase":
+        base_url, service_key = _supabase_credentials()
+        if not base_url or not service_key:
+            raise RuntimeError(
+                "CONFIG_STORAGE=supabase but SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are missing"
+            )
+        return "supabase"
     if mode == "redis":
         url, token = _kv_credentials()
         if not url or not token:
@@ -58,9 +76,16 @@ def _use_redis() -> bool:
                 "CONFIG_STORAGE=redis but KV_REST_API_URL / KV_REST_API_TOKEN "
                 "(or Upstash REST URL/token) are missing"
             )
-        return True
+        return "redis"
+
+    # auto-detect: prefer Supabase if configured, else Redis, else file
+    base_url, service_key = _supabase_credentials()
+    if base_url and service_key:
+        return "supabase"
     url, token = _kv_credentials()
-    return bool(url and token)
+    if url and token:
+        return "redis"
+    return "file"
 
 
 def _redis_command(command: list) -> dict:
@@ -93,13 +118,56 @@ def _redis_set_json(config: dict) -> None:
     _redis_command(["SET", REDIS_CONFIG_KEY, payload])
 
 
-def _load_config_file() -> dict:
-    if not os.path.exists(CONFIG_FILE):
-        default_config = _default_config()
-        _save_config_file(default_config)
-        return default_config
-    with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+def _supabase_table_url() -> str:
+    base_url, _ = _supabase_credentials()
+    return f"{base_url}/rest/v1/{SUPABASE_TABLE}"
+
+
+def _supabase_headers(prefer: Optional[str] = None) -> dict:
+    _, service_key = _supabase_credentials()
+    headers = {
+        "apikey": service_key,
+        "Authorization": f"Bearer {service_key}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        headers["Prefer"] = prefer
+    return headers
+
+
+def _supabase_get_json() -> Optional[dict]:
+    params = {
+        SUPABASE_KEY_COLUMN: f"eq.{SUPABASE_CONFIG_KEY}",
+        "select": SUPABASE_VALUE_COLUMN,
+        "limit": 1,
+    }
+    response = requests.get(
+        _supabase_table_url(),
+        params=params,
+        headers=_supabase_headers(),
+        timeout=15,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload:
+        return None
+    row = payload[0]
+    value = row.get(SUPABASE_VALUE_COLUMN)
+    if isinstance(value, dict):
+        return value
+    raise RuntimeError(f"Unexpected Supabase value type: {type(value).__name__}")
+
+
+def _supabase_set_json(config: dict) -> None:
+    row = {SUPABASE_KEY_COLUMN: SUPABASE_CONFIG_KEY, SUPABASE_VALUE_COLUMN: config}
+    response = requests.post(
+        _supabase_table_url(),
+        params={"on_conflict": SUPABASE_KEY_COLUMN},
+        headers=_supabase_headers(prefer="resolution=merge-duplicates,return=minimal"),
+        json=[row],
+        timeout=15,
+    )
+    response.raise_for_status()
 
 
 def _save_config_file(config: dict) -> None:
@@ -118,7 +186,7 @@ def _bootstrap_file_paths():
     return paths
 
 
-def _try_bootstrap_redis_from_file() -> Optional[dict]:
+def _try_bootstrap_from_file() -> Optional[dict]:
     for path in _bootstrap_file_paths():
         if path and os.path.isfile(path):
             try:
@@ -130,18 +198,34 @@ def _try_bootstrap_redis_from_file() -> Optional[dict]:
 
 
 def _load_config():
-    if _use_redis():
+    backend = _storage_backend()
+    if backend == "redis":
         try:
             cfg = _redis_get_json()
         except requests.RequestException as e:
             raise RuntimeError(f"KV/Redis read failed: {e}") from e
         if cfg is None:
-            migrated = _try_bootstrap_redis_from_file()
+            migrated = _try_bootstrap_from_file()
             if migrated is not None:
                 _redis_set_json(migrated)
                 return migrated
             default_config = _default_config()
             _redis_set_json(default_config)
+            return default_config
+        return cfg
+
+    if backend == "supabase":
+        try:
+            cfg = _supabase_get_json()
+        except requests.RequestException as e:
+            raise RuntimeError(f"Supabase read failed: {e}") from e
+        if cfg is None:
+            migrated = _try_bootstrap_from_file()
+            if migrated is not None:
+                _supabase_set_json(migrated)
+                return migrated
+            default_config = _default_config()
+            _supabase_set_json(default_config)
             return default_config
         return cfg
 
@@ -154,11 +238,18 @@ def _load_config():
 
 
 def _save_config(config: dict) -> None:
-    if _use_redis():
+    backend = _storage_backend()
+    if backend == "redis":
         try:
             _redis_set_json(config)
         except requests.RequestException as e:
             raise RuntimeError(f"KV/Redis write failed: {e}") from e
+        return
+    if backend == "supabase":
+        try:
+            _supabase_set_json(config)
+        except requests.RequestException as e:
+            raise RuntimeError(f"Supabase write failed: {e}") from e
         return
     _save_config_file(config)
 
