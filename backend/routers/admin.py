@@ -1,7 +1,25 @@
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from services.instagram import get_account_media, send_dm, reply_to_comment
-from services.config_manager import get_all_configs, update_reel_config, get_reel_config
+from pydantic import BaseModel, Field
+from services.instagram import (
+    get_account_media,
+    send_dm,
+    reply_to_comment,
+    send_text_dm,
+    send_quick_replies_dm,
+    send_button_template_dm,
+)
+from services.config_manager import (
+    get_all_configs,
+    update_reel_config,
+    get_reel_config,
+    list_flows,
+    upsert_flow,
+    get_queue_status,
+    process_dm_queue,
+    get_analytics_summary,
+)
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
@@ -10,6 +28,7 @@ class ReelConfigUpdate(BaseModel):
     dm_message: str
     comment_reply: str
     active: bool
+    flow_id: str = ""
 
 class TestDMRequest(BaseModel):
     comment_id: str
@@ -18,6 +37,42 @@ class TestDMRequest(BaseModel):
 class TestReplyRequest(BaseModel):
     comment_id: str
     message: str
+
+class FlowPayload(BaseModel):
+    id: str | None = None
+    name: str
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _send_queue_job(job: dict[str, Any]) -> dict[str, Any]:
+    payload_type = job.get("payload_type")
+    recipient = job.get("recipient")
+    recipient_type = job.get("recipient_type")
+    payload = job.get("payload", {})
+
+    if payload_type == "text":
+        if recipient_type == "comment_id":
+            return send_dm(recipient, payload.get("text", ""))
+        return send_text_dm(recipient, payload.get("text", ""))
+
+    if payload_type == "quick_replies":
+        return send_quick_replies_dm(
+            recipient,
+            payload.get("text", ""),
+            payload.get("options", []),
+        )
+
+    if payload_type == "button_template":
+        return send_button_template_dm(
+            recipient,
+            payload.get("title", "Info"),
+            payload.get("subtitle", ""),
+            payload.get("image_url", ""),
+            payload.get("buttons", []),
+        )
+
+    return {"error": {"message": f"unsupported_payload_type:{payload_type}"}}
+
 
 @router.get("/reels")
 async def fetch_reels():
@@ -60,6 +115,8 @@ async def get_stats():
     try:
         media_items = get_account_media()
         configs = get_all_configs()
+        analytics = get_analytics_summary()
+        queue = get_queue_status()
 
         total = len(media_items)
         configured = 0
@@ -75,8 +132,44 @@ async def get_stats():
         return {
             "total_reels": total,
             "configured": configured,
-            "using_default": using_default
+            "using_default": using_default,
+            "analytics": analytics,
+            "queue": queue,
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows")
+async def get_flows():
+    try:
+        return {"flows": list_flows()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flows")
+async def save_flow(payload: FlowPayload):
+    try:
+        flow = upsert_flow(payload.dict())
+        return {"status": "saved", "flow": flow}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/queue/process")
+async def run_queue():
+    try:
+        result = process_dm_queue(_send_queue_job)
+        return {"status": "processed", **result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/queue/status")
+async def queue_status():
+    try:
+        return get_queue_status()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

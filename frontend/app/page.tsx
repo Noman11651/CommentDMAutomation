@@ -10,6 +10,7 @@ interface ReelConfig {
   dm_message: string
   comment_reply: string
   active: boolean
+  flow_id?: string
 }
 
 interface Reel {
@@ -24,6 +25,18 @@ interface Stats {
   total_reels: number
   configured: number
   using_default: number
+  analytics?: {
+    triggers_matched: number
+    dms_sent: number
+    dm_failed: number
+    dedup_skips: number
+    rate_limited_queued: number
+  }
+  queue?: {
+    pending: number
+    sent_last_hour: number
+    rate_limit_per_hour: number
+  }
 }
 
 export default function Dashboard() {
@@ -35,7 +48,8 @@ export default function Dashboard() {
     trigger_keyword: '',
     dm_message: '',
     comment_reply: '',
-    active: true
+    active: false,
+    flow_id: ''
   })
 
   useEffect(() => {
@@ -108,7 +122,7 @@ export default function Dashboard() {
 
         {/* Stats Cards */}
         {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-10">
             <div className="group relative">
               <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-2xl blur opacity-75 group-hover:opacity-100 transition"></div>
               <div className="relative glass rounded-2xl p-8 text-center border border-white/20">
@@ -128,6 +142,27 @@ export default function Dashboard() {
               <div className="relative glass rounded-2xl p-8 text-center border border-white/20">
                 <div className="text-5xl font-bold text-white mb-2">{stats.using_default}</div>
                 <div className="text-white/80 text-sm uppercase tracking-wider">Using Default</div>
+              </div>
+            </div>
+            <div className="group relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl blur opacity-75 group-hover:opacity-100 transition"></div>
+              <div className="relative glass rounded-2xl p-8 text-center border border-white/20">
+                <div className="text-5xl font-bold text-white mb-2">{stats.analytics?.triggers_matched ?? 0}</div>
+                <div className="text-white/80 text-sm uppercase tracking-wider">Triggers</div>
+              </div>
+            </div>
+            <div className="group relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-2xl blur opacity-75 group-hover:opacity-100 transition"></div>
+              <div className="relative glass rounded-2xl p-8 text-center border border-white/20">
+                <div className="text-5xl font-bold text-white mb-2">{stats.analytics?.dms_sent ?? 0}</div>
+                <div className="text-white/80 text-sm uppercase tracking-wider">DM Sent</div>
+              </div>
+            </div>
+            <div className="group relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 rounded-2xl blur opacity-75 group-hover:opacity-100 transition"></div>
+              <div className="relative glass rounded-2xl p-8 text-center border border-white/20">
+                <div className="text-5xl font-bold text-white mb-2">{stats.queue?.pending ?? 0}</div>
+                <div className="text-white/80 text-sm uppercase tracking-wider">Queue Pending</div>
               </div>
             </div>
           </div>
@@ -227,6 +262,17 @@ export default function Dashboard() {
                       onChange={(e) => setFormData({...formData, comment_reply: e.target.value})}
                       className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 border border-white/20 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/50 transition h-28 resize-none"
                       placeholder="Public reply to the comment"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-white font-semibold mb-2 text-sm uppercase tracking-wide">Flow ID (Optional)</label>
+                    <input
+                      type="text"
+                      value={formData.flow_id || ''}
+                      onChange={(e) => setFormData({...formData, flow_id: e.target.value})}
+                      className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 border border-white/20 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition"
+                      placeholder="Use saved flow id for quick reply / multi-turn"
                     />
                   </div>
 
