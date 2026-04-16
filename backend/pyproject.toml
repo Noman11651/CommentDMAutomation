@@ -1,0 +1,8 @@
+[project]
+name = "comment-dm-automation-api"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+# Explicit entry for Vercel FastAPI detection when Root Directory is `backend`
+[project.scripts]
+app = "main:app"

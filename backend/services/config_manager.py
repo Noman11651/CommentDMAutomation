@@ -1,7 +1,21 @@
 import json
 import os
 
-CONFIG_FILE = "reels_config.json"
+def _backend_dir():
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _config_file_path():
+    explicit = os.environ.get("CONFIG_FILE_PATH", "").strip()
+    if explicit:
+        return explicit
+    # Vercel serverless (and similar) only allow writes under /tmp
+    if os.environ.get("VERCEL"):
+        return "/tmp/reels_config.json"
+    return os.path.join(_backend_dir(), "reels_config.json")
+
+
+CONFIG_FILE = _config_file_path()
 
 def _load_config():
     if not os.path.exists(CONFIG_FILE):

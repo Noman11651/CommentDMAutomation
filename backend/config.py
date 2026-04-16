@@ -15,6 +15,12 @@ _DEFAULT_CORS = (
 CORS_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ORIGINS", _DEFAULT_CORS).split(",") if o.strip()
 ]
-# Optional: e.g. https://.*\\.vercel\\.app for preview deployments
-_cors_regex = os.getenv("CORS_ORIGIN_REGEX", "").strip()
-CORS_ORIGIN_REGEX = _cors_regex or None
+# When the API runs on Vercel, allow any *.vercel.app origin by default so production
+# and preview frontends work without extra env. Override with CORS_ORIGIN_REGEX or set
+# CORS_ORIGIN_REGEX= to empty in the dashboard to disable.
+if "CORS_ORIGIN_REGEX" in os.environ:
+    CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", "").strip() or None
+elif os.environ.get("VERCEL"):
+    CORS_ORIGIN_REGEX = r"https://.*\.vercel\.app"
+else:
+    CORS_ORIGIN_REGEX = None

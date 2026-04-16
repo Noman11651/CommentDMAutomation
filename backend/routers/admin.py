@@ -57,25 +57,28 @@ async def update_reel(media_id: str, config: ReelConfigUpdate):
 
 @router.get("/stats")
 async def get_stats():
-    media_items = get_account_media()
-    configs = get_all_configs()
-    
-    total = len(media_items)
-    configured = 0
-    using_default = 0
-    
-    for item in media_items:
-        media_id = item["id"]
-        if media_id in configs["reels"]:
-            configured += 1
-        else:
-            using_default += 1
-    
-    return {
-        "total_reels": total,
-        "configured": configured,
-        "using_default": using_default
-    }
+    try:
+        media_items = get_account_media()
+        configs = get_all_configs()
+
+        total = len(media_items)
+        configured = 0
+        using_default = 0
+
+        for item in media_items:
+            media_id = item["id"]
+            if media_id in configs["reels"]:
+                configured += 1
+            else:
+                using_default += 1
+
+        return {
+            "total_reels": total,
+            "configured": configured,
+            "using_default": using_default
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/test/send-dm")
 async def test_send_dm(request: TestDMRequest):
