@@ -39,9 +39,15 @@ interface Stats {
   }
 }
 
+interface FlowSummary {
+  id: string
+  name: string
+}
+
 export default function Dashboard() {
   const [reels, setReels] = useState<Reel[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
+  const [flows, setFlows] = useState<FlowSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [editingReel, setEditingReel] = useState<Reel | null>(null)
   const [formData, setFormData] = useState<ReelConfig>({
@@ -58,12 +64,14 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const [reelsRes, statsRes] = await Promise.all([
+      const [reelsRes, statsRes, flowsRes] = await Promise.all([
         axios.get(`${API_URL}/api/reels`),
-        axios.get(`${API_URL}/api/stats`)
+        axios.get(`${API_URL}/api/stats`),
+        axios.get(`${API_URL}/api/flows`)
       ])
       setReels(reelsRes.data.reels)
       setStats(statsRes.data)
+      setFlows(flowsRes.data.flows || [])
     } catch (error) {
       console.error('Failed to fetch data:', error)
     } finally {
@@ -73,7 +81,7 @@ export default function Dashboard() {
 
   const openEditModal = (reel: Reel) => {
     setEditingReel(reel)
-    setFormData(reel.config)
+    setFormData({ ...reel.config, flow_id: reel.config.flow_id || '' })
   }
 
   const closeModal = () => {
@@ -267,13 +275,18 @@ export default function Dashboard() {
 
                   <div>
                     <label className="block text-white font-semibold mb-2 text-sm uppercase tracking-wide">Flow ID (Optional)</label>
-                    <input
-                      type="text"
+                    <select
                       value={formData.flow_id || ''}
                       onChange={(e) => setFormData({...formData, flow_id: e.target.value})}
                       className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 border border-white/20 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition"
-                      placeholder="Use saved flow id for quick reply / multi-turn"
-                    />
+                    >
+                      <option value="">No flow (use plain DM message)</option>
+                      {flows.map((flow) => (
+                        <option key={flow.id} value={flow.id}>
+                          {flow.name} ({flow.id})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10">
