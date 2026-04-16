@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { useRouter } from 'next/navigation'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -39,15 +40,10 @@ interface Stats {
   }
 }
 
-interface FlowSummary {
-  id: string
-  name: string
-}
-
 export default function Dashboard() {
+  const router = useRouter()
   const [reels, setReels] = useState<Reel[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
-  const [flows, setFlows] = useState<FlowSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [editingReel, setEditingReel] = useState<Reel | null>(null)
   const [formData, setFormData] = useState<ReelConfig>({
@@ -64,14 +60,12 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const [reelsRes, statsRes, flowsRes] = await Promise.all([
+      const [reelsRes, statsRes] = await Promise.all([
         axios.get(`${API_URL}/api/reels`),
-        axios.get(`${API_URL}/api/stats`),
-        axios.get(`${API_URL}/api/flows`)
+        axios.get(`${API_URL}/api/stats`)
       ])
       setReels(reelsRes.data.reels)
       setStats(statsRes.data)
-      setFlows(flowsRes.data.flows || [])
     } catch (error) {
       console.error('Failed to fetch data:', error)
     } finally {
@@ -97,6 +91,28 @@ export default function Dashboard() {
       closeModal()
     } catch (error) {
       console.error('Failed to update reel:', error)
+    }
+  }
+
+  const handleSaveAndNext = async () => {
+    if (!editingReel) return
+
+    const reelFlowId =
+      (formData.flow_id || '').trim() ||
+      `reel_${editingReel.id.replace(/[^a-zA-Z0-9_]/g, '_')}_flow`
+
+    const payload: ReelConfig = {
+      ...formData,
+      flow_id: reelFlowId,
+    }
+
+    try {
+      await axios.put(`${API_URL}/api/reels/${editingReel.id}`, payload)
+      await fetchData()
+      closeModal()
+      router.push(`/automations/${editingReel.id}`)
+    } catch (error) {
+      console.error('Failed to save and continue:', error)
     }
   }
 
@@ -273,21 +289,9 @@ export default function Dashboard() {
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-white font-semibold mb-2 text-sm uppercase tracking-wide">Flow ID (Optional)</label>
-                    <select
-                      value={formData.flow_id || ''}
-                      onChange={(e) => setFormData({...formData, flow_id: e.target.value})}
-                      className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 border border-white/20 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition"
-                    >
-                      <option value="">No flow (use plain DM message)</option>
-                      {flows.map((flow) => (
-                        <option key={flow.id} value={flow.id}>
-                          {flow.name} ({flow.id})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <p className="text-xs text-white/70">
+                    Next step builds a dedicated flow for this reel and auto-links it.
+                  </p>
 
                   <div className="flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10">
                     <input
@@ -300,16 +304,22 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="flex gap-4 mt-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
                   <button
                     onClick={handleSave}
-                    className="flex-1 bg-gradient-to-r from-pink-500 to-purple-500 text-white px-6 py-4 rounded-xl font-bold hover:from-pink-600 hover:to-purple-600 transition-all transform hover:scale-105 shadow-lg"
+                    className="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-6 py-4 rounded-xl font-bold hover:from-pink-600 hover:to-purple-600 transition-all transform hover:scale-105 shadow-lg"
                   >
                     Save Changes
                   </button>
                   <button
+                    onClick={handleSaveAndNext}
+                    className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-6 py-4 rounded-xl font-bold hover:from-cyan-600 hover:to-blue-600 transition-all transform hover:scale-105 shadow-lg"
+                  >
+                    Next: Build Reel Flow
+                  </button>
+                  <button
                     onClick={closeModal}
-                    className="flex-1 bg-white/10 text-white px-6 py-4 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/20"
+                    className="bg-white/10 text-white px-6 py-4 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/20"
                   >
                     Cancel
                   </button>
