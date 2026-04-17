@@ -13,6 +13,7 @@ from services import flow_engine
 from services.config_manager import (
     get_reel_config,
     is_reel_configured,
+    check_and_mark_event_dedup,
     enqueue_dm,
     process_dm_queue,
     record_analytics,
@@ -33,8 +34,6 @@ async def verify_webhook(
 
 @router.post("")
 async def handle_webhook(request: Request):
-    return {"status": "paused"}
-    
     body = await request.json()
 
     if body.get("object") != "instagram":
@@ -113,6 +112,12 @@ def _handle_comment_change(value: dict):
         return
 
     sender_key = sender_id or f"comment:{comment_id}"
+
+    # Event-level deduplication: Ensure we process this exact comment ID only once
+    if not check_and_mark_event_dedup(comment_id):
+        print(f"[webhook] event dedup skip comment_id={comment_id}")
+        return
+
     record_analytics("trigger_matched", sender_id=sender_key, media_id=media_id, trigger=trigger)
     print(f"[webhook] matched media_id={media_id} comment_id={comment_id} trigger={trigger}")
 
@@ -144,7 +149,7 @@ def _handle_comment_change(value: dict):
             record_analytics("comment_reply_sent", media_id=media_id, comment_id=comment_id)
 
 
-def _extract_payload_from_event(event: dict) -> tuple[str, str]:
+def _extract_payload_from_event(event: dict) -> tuple[str, str, str]:
     msg = event.get("message", {}) or {}
     quick = msg.get("quick_reply", {}) or {}
     postback = event.get("postback", {}) or {}
@@ -152,16 +157,21 @@ def _extract_payload_from_event(event: dict) -> tuple[str, str]:
         str(quick.get("payload") or postback.get("payload") or msg.get("text") or "").strip()
     )
     kind = "quick_reply" if quick.get("payload") else "postback" if postback.get("payload") else "text"
-    return payload, kind
-
+    event_id = str(msg.get("mid") or postback.get("mid") or "")
+    return payload, kind, event_id
 
 def _handle_messaging_event(event: dict):
     sender_id = str((event.get("sender") or {}).get("id") or "").strip()
     if not sender_id:
         return
-    payload, kind = _extract_payload_from_event(event)
+    payload, kind, event_id = _extract_payload_from_event(event)
     if not payload:
         return
+        
+    if event_id and not check_and_mark_event_dedup(event_id):
+        print(f"[webhook] event dedup skip messaging event_id={event_id}")
+        return
+        
     upsert_contact(sender_id, {"last_message_at": int(time.time())})
     result = flow_engine.handle_response(sender_id, payload)
     print(f"[webhook] messaging sender={sender_id} kind={kind} payload={payload} result={result}")

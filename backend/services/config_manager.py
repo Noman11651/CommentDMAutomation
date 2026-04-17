@@ -433,6 +433,27 @@ def record_analytics(event_type: str, **payload: Any) -> dict[str, Any]:
     return _update_config(_mutate)
 
 
+def check_and_mark_event_dedup(event_id: str) -> bool:
+    """Deduplicate webhooks based on their unique ID (e.g., comment_id, message_id)."""
+    now = _now_ts()
+
+    def _mutate(config: dict[str, Any]) -> bool:
+        # Initialize if missing
+        if "event_dedup" not in config:
+            config["event_dedup"] = {}
+            
+        exists = event_id in config["event_dedup"]
+        if not exists:
+            config["event_dedup"][event_id] = now
+            # compact event dedup - keep last 1000 or older than 24h
+            cutoff = now - 86400
+            for k in list(config["event_dedup"].keys()):
+                if config["event_dedup"][k] < cutoff:
+                    del config["event_dedup"][k]
+        return not exists
+
+    return _update_config(_mutate)
+
 def check_and_mark_dedup(sender_id: str, media_id: str, trigger_keyword: str) -> bool:
     key = f"{sender_id}|{media_id}|{trigger_keyword.lower()}"
     now = _now_ts()
