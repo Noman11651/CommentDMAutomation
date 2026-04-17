@@ -135,6 +135,28 @@ def reply_to_comment(comment_id: str, message: str):
     return _safe_post(f"/{comment_id}/replies", payload)
 
 
+def get_user_follow_status(recipient_id: str):
+    """
+    Return follow relationship booleans for an Instagram-scoped user id.
+    Expected response fields:
+    - is_user_follow_business
+    - is_business_follow_user
+    """
+    params = {
+        "access_token": INSTAGRAM_ACCESS_TOKEN,
+        "fields": "is_user_follow_business,is_business_follow_user",
+    }
+    try:
+        response = requests.get(
+            f"{GRAPH_API_URL}/{recipient_id}",
+            params=params,
+            timeout=REQUEST_TIMEOUT,
+        )
+        return response.json()
+    except requests.RequestException as e:
+        return {"error": {"message": str(e), "type": "request_exception"}}
+
+
 def get_account_media():
     params = {
         "access_token": INSTAGRAM_ACCESS_TOKEN,

@@ -1,6 +1,8 @@
+import time
 from typing import Any, Optional
 
 from services import config_manager
+from services import instagram
 
 
 def _enqueue_text(recipient_id: str, text: str, metadata: dict[str, Any]) -> None:
@@ -102,6 +104,18 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
             contact = config_manager.get_contact(sender_id) or {}
             if step.get("condition", {}).get("check") == "follow_confirmed":
                 is_true = bool(contact.get("follow_confirmed"))
+                # Prefer live IG follow status when available; fallback to cached flag.
+                follow_status = instagram.get_user_follow_status(sender_id)
+                if isinstance(follow_status, dict) and not follow_status.get("error"):
+                    if "is_user_follow_business" in follow_status:
+                        is_true = bool(follow_status.get("is_user_follow_business"))
+                        config_manager.upsert_contact(
+                            sender_id,
+                            {
+                                "follow_confirmed": is_true,
+                                "follow_status_checked_at": int(time.time()),
+                            },
+                        )
                 current_step_id = step.get("condition", {}).get("onTrue" if is_true else "onFalse")
                 if not current_step_id:
                     _clear_contact_state(sender_id)
