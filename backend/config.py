@@ -6,6 +6,8 @@ load_dotenv()
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "")
 INSTAGRAM_ACCESS_TOKEN = os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
 IG_BUSINESS_ACCOUNT_ID = os.getenv("IG_BUSINESS_ACCOUNT_ID", "")
+FLOW_START_COOLDOWN_SECONDS = int(os.getenv("FLOW_START_COOLDOWN_SECONDS", "90"))
+INBOUND_PAYLOAD_DEDUP_SECONDS = int(os.getenv("INBOUND_PAYLOAD_DEDUP_SECONDS", "15"))
 
 # Comma-separated. Cannot use "*" here while allow_credentials=True (browser rejects that combo).
 _DEFAULT_CORS = (

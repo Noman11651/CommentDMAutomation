@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Request, Query, HTTPException
 import re
 import time
-from config import VERIFY_TOKEN, IG_BUSINESS_ACCOUNT_ID
+from config import (
+    VERIFY_TOKEN,
+    IG_BUSINESS_ACCOUNT_ID,
+    FLOW_START_COOLDOWN_SECONDS,
+    INBOUND_PAYLOAD_DEDUP_SECONDS,
+)
 from services.instagram import (
     send_dm,
     reply_to_comment,
@@ -15,6 +20,7 @@ from services.config_manager import (
     get_reel_config,
     is_reel_configured,
     try_claim_webhook_event,
+    get_contact,
     enqueue_dm,
     process_dm_queue,
     record_analytics,
@@ -101,6 +107,31 @@ def _send_queue_job(job: dict) -> dict:
     return {"error": {"message": f"unsupported_payload_type:{payload_type}"}}
 
 
+def _is_recent_flow_start(sender_id: str, media_id: str, now_ts: int) -> bool:
+    if FLOW_START_COOLDOWN_SECONDS <= 0:
+        return False
+    contact = get_contact(sender_id) or {}
+    last_media = str(contact.get("last_flow_start_media_id", "")).strip()
+    last_ts = int(contact.get("last_flow_start_at") or 0)
+    return last_media == str(media_id) and (now_ts - last_ts) < FLOW_START_COOLDOWN_SECONDS
+
+
+def _is_duplicate_inbound_payload(
+    sender_id: str, payload: str, kind: str, now_ts: int
+) -> bool:
+    if INBOUND_PAYLOAD_DEDUP_SECONDS <= 0:
+        return False
+    contact = get_contact(sender_id) or {}
+    last_payload = str(contact.get("last_inbound_payload", ""))
+    last_kind = str(contact.get("last_inbound_kind", ""))
+    last_ts = int(contact.get("last_inbound_payload_at") or 0)
+    return (
+        last_payload == payload
+        and last_kind == kind
+        and (now_ts - last_ts) < INBOUND_PAYLOAD_DEDUP_SECONDS
+    )
+
+
 def _handle_comment_change(value: dict):
     comment_id = value.get("id")
     comment_text = value.get("text", "")
@@ -152,9 +183,28 @@ def _handle_comment_change(value: dict):
 
     dm_message = config.get("dm_message", "")
     flow_id = str(config.get("flow_id", "")).strip()
+    now_ts = int(time.time())
 
     if sender_id:
-        upsert_contact(sender_id, {"last_triggered_at": int(time.time())})
+        if _is_recent_flow_start(sender_id, str(media_id), now_ts):
+            print(
+                f"[webhook] skip duplicate flow start sender={sender_id} media_id={media_id}"
+            )
+            record_analytics(
+                "flow_start_cooldown_skip",
+                sender_id=sender_id,
+                media_id=media_id,
+                cooldown_seconds=FLOW_START_COOLDOWN_SECONDS,
+            )
+            return
+        upsert_contact(
+            sender_id,
+            {
+                "last_triggered_at": now_ts,
+                "last_flow_start_at": now_ts,
+                "last_flow_start_media_id": str(media_id),
+            },
+        )
 
     if flow_id and sender_id:
         flow_result = flow_engine.execute_flow(sender_id, flow_id)
@@ -196,11 +246,33 @@ def _handle_messaging_event(event: dict):
     payload, kind, event_id = _extract_payload_from_event(event)
     if not payload:
         return
-        
+    now_ts = int(time.time())
+
     if event_id and not try_claim_webhook_event(f"ig_msg:{event_id}"):
         print(f"[webhook] event dedup skip messaging event_id={event_id}")
         return
-        
-    upsert_contact(sender_id, {"last_message_at": int(time.time())})
+
+    if _is_duplicate_inbound_payload(sender_id, payload, kind, now_ts):
+        print(
+            f"[webhook] skip duplicate inbound payload sender={sender_id} kind={kind} payload={payload}"
+        )
+        record_analytics(
+            "inbound_payload_dedup_skip",
+            sender_id=sender_id,
+            kind=kind,
+            payload=payload,
+            cooldown_seconds=INBOUND_PAYLOAD_DEDUP_SECONDS,
+        )
+        return
+
+    upsert_contact(
+        sender_id,
+        {
+            "last_message_at": now_ts,
+            "last_inbound_payload": payload,
+            "last_inbound_kind": kind,
+            "last_inbound_payload_at": now_ts,
+        },
+    )
     result = flow_engine.handle_response(sender_id, payload)
     print(f"[webhook] messaging sender={sender_id} kind={kind} payload={payload} result={result}")
