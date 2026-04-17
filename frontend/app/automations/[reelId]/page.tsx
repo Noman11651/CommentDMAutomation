@@ -99,10 +99,10 @@ export default function ReelAutomationFlowPage() {
 
     setSaving(true)
     try {
-      const [savedFlow] = await Promise.all([
-        saveFlow(flowPayload),
-        axios.put(`${API_URL}/api/reels/${reelId}`, configPayload),
-      ])
+      // Run sequentially to avoid race condition in serverless
+      const savedFlow = await saveFlow(flowPayload)
+      await axios.put(`${API_URL}/api/reels/${reelId}`, configPayload)
+      
       setFlow(savedFlow)
       await loadReelAutomation()
       setSuccess('Saved reel settings and flow successfully.')
