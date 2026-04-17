@@ -7,13 +7,14 @@ from services.instagram import (
     reply_to_comment,
     send_text_dm,
     send_quick_replies_dm,
+    send_button_text_template_dm,
     send_button_template_dm,
 )
 from services import flow_engine
 from services.config_manager import (
     get_reel_config,
     is_reel_configured,
-    check_and_mark_event_dedup,
+    try_claim_webhook_event,
     enqueue_dm,
     process_dm_queue,
     record_analytics,
@@ -71,7 +72,15 @@ def _send_queue_job(job: dict) -> dict:
             return send_dm(recipient, payload.get("text", ""))
         return send_text_dm(recipient, payload.get("text", ""))
     if payload_type == "quick_replies":
-        return send_quick_replies_dm(recipient, payload.get("text", ""), payload.get("options", []))
+        opts = payload.get("options", [])
+        text = payload.get("text", "")
+        # Stacked full-width buttons (button template); Instagram allows max 3 per template.
+        if len(opts) <= 3:
+            result = send_button_text_template_dm(recipient, text, opts)
+            if not result.get("error"):
+                return result
+            print(f"[webhook] button template failed, falling back to quick_replies: {result.get('error')}")
+        return send_quick_replies_dm(recipient, text, opts)
     if payload_type == "button_template":
         return send_button_template_dm(
             recipient,
@@ -114,7 +123,7 @@ def _handle_comment_change(value: dict):
     sender_key = sender_id or f"comment:{comment_id}"
 
     # Event-level deduplication: Ensure we process this exact comment ID only once
-    if not check_and_mark_event_dedup(comment_id):
+    if not try_claim_webhook_event(str(comment_id)):
         print(f"[webhook] event dedup skip comment_id={comment_id}")
         return
 
@@ -168,7 +177,7 @@ def _handle_messaging_event(event: dict):
     if not payload:
         return
         
-    if event_id and not check_and_mark_event_dedup(event_id):
+    if event_id and not try_claim_webhook_event(event_id):
         print(f"[webhook] event dedup skip messaging event_id={event_id}")
         return
         

@@ -50,6 +50,38 @@ def send_quick_replies_dm(recipient_id: str, text: str, options: list[dict]):
     return _safe_post("/me/messages", payload)
 
 
+def send_button_text_template_dm(recipient_id: str, text: str, options: list[dict]):
+    """
+    Button template: one text block with up to 3 stacked postback buttons (full-width under the
+    message). Use instead of quick_replies when you want Manychat-style vertical buttons.
+    """
+    buttons = []
+    for opt in options:
+        title = str(opt.get("title", "")).strip()[:20]
+        payload = str(opt.get("payload", "")).strip()
+        if title and payload:
+            buttons.append({"type": "postback", "title": title, "payload": payload})
+    buttons = buttons[:3]
+    if not buttons:
+        return {"error": {"message": "button_template_requires_at_least_one_button"}}
+
+    body_text = str(text or "").strip()[:640]
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {
+            "attachment": {
+                "type": "template",
+                "payload": {
+                    "template_type": "button",
+                    "text": body_text,
+                    "buttons": buttons,
+                },
+            }
+        },
+    }
+    return _safe_post("/me/messages", payload)
+
+
 def send_button_template_dm(
     recipient_id: str,
     title: str,

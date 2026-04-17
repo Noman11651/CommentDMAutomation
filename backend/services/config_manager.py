@@ -13,6 +13,9 @@ SUPABASE_TABLE = os.environ.get("SUPABASE_CONFIG_TABLE", "reels_config")
 SUPABASE_KEY_COLUMN = os.environ.get("SUPABASE_CONFIG_KEY_COLUMN", "config_key")
 SUPABASE_VALUE_COLUMN = os.environ.get("SUPABASE_CONFIG_VALUE_COLUMN", "config_value")
 SUPABASE_CONFIG_KEY = os.environ.get("SUPABASE_CONFIG_KEY", "default")
+SUPABASE_WEBHOOK_DEDUP_TABLE = os.environ.get(
+    "SUPABASE_WEBHOOK_DEDUP_TABLE", "webhook_event_claims"
+)
 DM_RATE_LIMIT_PER_HOUR = int(os.environ.get("DM_RATE_LIMIT_PER_HOUR", "200"))
 MAX_ANALYTICS_EVENTS = int(os.environ.get("MAX_ANALYTICS_EVENTS", "5000"))
 MAX_DEDUP_KEYS = int(os.environ.get("MAX_DEDUP_KEYS", "5000"))
@@ -433,15 +436,89 @@ def record_analytics(event_type: str, **payload: Any) -> dict[str, Any]:
     return _update_config(_mutate)
 
 
+def _try_claim_event_supabase(event_id: str) -> Optional[bool]:
+    """
+    Atomically claim an event_id via INSERT (unique primary key).
+    Returns True if this instance won the claim, False if duplicate, None if unavailable.
+    """
+    base_url, service_key = _supabase_credentials()
+    if not base_url or not service_key:
+        return None
+    table = (SUPABASE_WEBHOOK_DEDUP_TABLE or "webhook_event_claims").strip()
+    if not table:
+        return None
+    url = f"{base_url.rstrip('/')}/rest/v1/{table}"
+    try:
+        response = requests.post(
+            url,
+            headers=_supabase_headers(prefer="return=minimal"),
+            json=[{"event_id": event_id}],
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        print(f"[config] supabase webhook claim request failed: {e}")
+        return None
+    if response.status_code in (200, 201):
+        return True
+    if response.status_code == 409:
+        return False
+    print(
+        f"[config] supabase webhook claim unexpected status {response.status_code}: "
+        f"{response.text[:300]}"
+    )
+    return None
+
+
+def _try_claim_event_redis(event_id: str) -> Optional[bool]:
+    """Atomic SET key NX EX for webhook idempotency (works across serverless instances)."""
+    url, token = _kv_credentials()
+    if not url or not token:
+        return None
+    key = f"commentdm:webhook_claim:{event_id}"[:450]
+    try:
+        data = _redis_command(["SET", key, "1", "EX", "172800", "NX"])
+    except Exception as e:
+        print(f"[config] redis webhook claim failed: {e}")
+        return None
+    result = data.get("result")
+    if result == "OK":
+        return True
+    if result is None:
+        return False
+    return bool(result)
+
+
+def try_claim_webhook_event(event_id: str) -> bool:
+    """
+    Return True if this delivery should be processed (first claim wins).
+    Uses atomic storage when available so concurrent Vercel instances cannot double-process.
+    """
+    event_id = str(event_id or "").strip()
+    if not event_id:
+        return True
+
+    backend = _storage_backend()
+    if backend == "redis":
+        claimed = _try_claim_event_redis(event_id)
+        if claimed is not None:
+            return claimed
+    if backend == "supabase":
+        claimed = _try_claim_event_supabase(event_id)
+        if claimed is not None:
+            return claimed
+
+    return check_and_mark_event_dedup(event_id)
+
+
 def check_and_mark_event_dedup(event_id: str) -> bool:
-    """Deduplicate webhooks based on their unique ID (e.g., comment_id, message_id)."""
+    """In-JSON dedup (single-process safe only). Used as fallback when atomic claim is unavailable."""
     now = _now_ts()
 
     def _mutate(config: dict[str, Any]) -> bool:
         # Initialize if missing
         if "event_dedup" not in config:
             config["event_dedup"] = {}
-            
+
         exists = event_id in config["event_dedup"]
         if not exists:
             config["event_dedup"][event_id] = now
