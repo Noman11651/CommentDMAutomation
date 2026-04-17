@@ -458,10 +458,25 @@ def _try_claim_event_supabase(event_id: str) -> Optional[bool]:
     except requests.RequestException as e:
         print(f"[config] supabase webhook claim request failed: {e}")
         return None
-    if response.status_code in (200, 201):
+    if response.status_code in (200, 201, 204):
         return True
     if response.status_code == 409:
         return False
+    if response.status_code == 404:
+        print(
+            "[config] supabase webhook claim 404 — create table public.webhook_event_claims "
+            "(see backend/.env.example). Skipping this event to avoid duplicate replies."
+        )
+        # Fail closed: without the table, JSON fallback races across serverless instances.
+        return False
+    # PostgREST / Postgres unique violation sometimes arrives as 400
+    if response.status_code in (400, 403):
+        try:
+            err = response.json()
+            if err.get("code") == "23505":
+                return False
+        except (ValueError, TypeError):
+            pass
     print(
         f"[config] supabase webhook claim unexpected status {response.status_code}: "
         f"{response.text[:300]}"

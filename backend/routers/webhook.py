@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Query, HTTPException
 import re
 import time
-from config import VERIFY_TOKEN
+from config import VERIFY_TOKEN, IG_BUSINESS_ACCOUNT_ID
 from services.instagram import (
     send_dm,
     reply_to_comment,
@@ -39,10 +39,19 @@ async def handle_webhook(request: Request):
 
     if body.get("object") != "instagram":
         return {"status": "ignored"}
+    # Same payload can list the same comment twice; also protects before async dedup runs.
+    seen_comment_ids: set[str] = set()
     for entry in body.get("entry", []):
         for change in entry.get("changes", []):
             if change.get("field") == "comments":
-                _handle_comment_change(change.get("value", {}))
+                val = change.get("value") or {}
+                cid = str(val.get("id") or "").strip()
+                if cid and cid in seen_comment_ids:
+                    print(f"[webhook] skip duplicate comment in batch comment_id={cid}")
+                    continue
+                if cid:
+                    seen_comment_ids.add(cid)
+                _handle_comment_change(val)
         for event in entry.get("messaging", []):
             _handle_messaging_event(event)
 
@@ -102,6 +111,17 @@ def _handle_comment_change(value: dict):
     if not comment_id or not media_id:
         return
 
+    # Ignore nested thread replies (only automate top-level comments on the reel).
+    if value.get("parent_id"):
+        print(f"[webhook] skip nested comment parent_id={value.get('parent_id')} id={comment_id}")
+        return
+
+    # Do not react to our own IG account (avoids loops when comment_reply matches the keyword).
+    ig_self = str(IG_BUSINESS_ACCOUNT_ID or "").strip()
+    if ig_self and sender_id == ig_self:
+        print(f"[webhook] skip own IG comment sender={sender_id} id={comment_id}")
+        return
+
     if not is_reel_configured(media_id):
         print(f"[webhook] skip media_id={media_id}: no explicit reel config")
         return
@@ -123,7 +143,7 @@ def _handle_comment_change(value: dict):
     sender_key = sender_id or f"comment:{comment_id}"
 
     # Event-level deduplication: Ensure we process this exact comment ID only once
-    if not try_claim_webhook_event(str(comment_id)):
+    if not try_claim_webhook_event(f"ig_comment:{comment_id}"):
         print(f"[webhook] event dedup skip comment_id={comment_id}")
         return
 
@@ -177,7 +197,7 @@ def _handle_messaging_event(event: dict):
     if not payload:
         return
         
-    if event_id and not try_claim_webhook_event(event_id):
+    if event_id and not try_claim_webhook_event(f"ig_msg:{event_id}"):
         print(f"[webhook] event dedup skip messaging event_id={event_id}")
         return
         
