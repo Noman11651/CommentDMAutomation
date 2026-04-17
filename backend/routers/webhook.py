@@ -13,7 +13,6 @@ from services import flow_engine
 from services.config_manager import (
     get_reel_config,
     is_reel_configured,
-    check_and_mark_dedup,
     enqueue_dm,
     process_dm_queue,
     record_analytics,
@@ -112,11 +111,6 @@ def _handle_comment_change(value: dict):
         return
 
     sender_key = sender_id or f"comment:{comment_id}"
-    if not check_and_mark_dedup(sender_key, media_id, trigger):
-        print(f"[webhook] dedup skip sender={sender_key} media_id={media_id}")
-        record_analytics("dedup_skip", sender_id=sender_key, media_id=media_id, trigger=trigger)
-        return
-
     record_analytics("trigger_matched", sender_id=sender_key, media_id=media_id, trigger=trigger)
     print(f"[webhook] matched media_id={media_id} comment_id={comment_id} trigger={trigger}")
 
