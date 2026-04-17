@@ -33,6 +33,8 @@ async def verify_webhook(
 
 @router.post("")
 async def handle_webhook(request: Request):
+    return {"status": "paused"}
+    
     body = await request.json()
 
     if body.get("object") != "instagram":
