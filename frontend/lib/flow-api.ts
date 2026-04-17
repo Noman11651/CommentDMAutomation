@@ -48,14 +48,41 @@ interface FlowsResponse {
   flows: Flow[]
 }
 
+interface FlowResponse {
+  flow: Flow
+}
+
 interface SaveFlowResponse {
   status: string
   flow: Flow
 }
 
+export interface ReelFullResponse {
+  media_id: string
+  config: {
+    trigger_keyword: string
+    dm_message: string
+    comment_reply: string
+    active: boolean
+    flow_id?: string
+  }
+  is_configured: boolean
+  flow: Flow | null
+}
+
 export async function listFlows(): Promise<Flow[]> {
   const response = await axios.get<FlowsResponse>(`${API_URL}/api/flows`)
   return response.data.flows || []
+}
+
+export async function getFlow(flowId: string): Promise<Flow> {
+  const response = await axios.get<FlowResponse>(`${API_URL}/api/flows/${flowId}`)
+  return response.data.flow
+}
+
+export async function getReelFull(reelId: string): Promise<ReelFullResponse> {
+  const response = await axios.get<ReelFullResponse>(`${API_URL}/api/reels/${reelId}/full`)
+  return response.data
 }
 
 export async function saveFlow(flow: Flow): Promise<Flow> {
@@ -66,6 +93,78 @@ export async function saveFlow(flow: Flow): Promise<Flow> {
   }
   const response = await axios.post<SaveFlowResponse>(`${API_URL}/api/flows`, payload)
   return response.data.flow
+}
+
+export function getStepTypeLabel(type: StepType): string {
+  switch (type) {
+    case 'text':
+      return 'Send Message'
+    case 'quick_reply':
+      return 'Quick Reply Buttons'
+    case 'button_template':
+      return 'Card with Buttons'
+    case 'condition':
+      return 'Check Follow Status'
+    case 'end':
+      return 'End Flow'
+    default:
+      return type
+  }
+}
+
+export function getStepDisplayName(step: FlowStep, index: number): string {
+  return `Step ${index + 1} - ${getStepTypeLabel(step.type)}`
+}
+
+export function normalizeFlowStepIds(flow: Flow): Flow {
+  const steps = flow.steps || []
+  const oldToNew = new Map<string, string>()
+  const newSteps = steps.map((step, index) => {
+    const newId = `step_${index + 1}`
+    oldToNew.set(step.id, newId)
+    return { ...step, id: newId }
+  })
+
+  const remapStepId = (value?: string) => {
+    if (!value) return value
+    return oldToNew.get(value) || value
+  }
+
+  const remapped = newSteps.map((step) => {
+    const updated: FlowStep = { ...step }
+    if (updated.next_step_id) {
+      updated.next_step_id = remapStepId(updated.next_step_id)
+    }
+
+    if (updated.quick_replies) {
+      updated.quick_replies = updated.quick_replies.map((option) => ({
+        ...option,
+        next_step_id: remapStepId(option.next_step_id) || '',
+      }))
+    }
+
+    if (updated.buttons) {
+      updated.buttons = updated.buttons.map((button) => ({
+        ...button,
+        next_step_id: remapStepId(button.next_step_id),
+      }))
+    }
+
+    if (updated.condition) {
+      updated.condition = {
+        ...updated.condition,
+        onTrue: remapStepId(updated.condition.onTrue) || '',
+        onFalse: remapStepId(updated.condition.onFalse) || '',
+      }
+    }
+
+    return updated
+  })
+
+  return {
+    ...flow,
+    steps: remapped,
+  }
 }
 
 export function createEmptyStep(type: StepType, id?: string): FlowStep {

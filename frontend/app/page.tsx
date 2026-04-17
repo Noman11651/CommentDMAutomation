@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import { useRouter } from 'next/navigation'
 
@@ -20,12 +20,12 @@ interface Reel {
   permalink: string
   caption: string
   config: ReelConfig
+  is_configured?: boolean
 }
 
 interface Stats {
   total_reels: number
   configured: number
-  using_default: number
   analytics?: {
     triggers_matched: number
     dms_sent: number
@@ -45,6 +45,8 @@ export default function Dashboard() {
   const [reels, setReels] = useState<Reel[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
   const [editingReel, setEditingReel] = useState<Reel | null>(null)
   const [formData, setFormData] = useState<ReelConfig>({
     trigger_keyword: '',
@@ -82,21 +84,23 @@ export default function Dashboard() {
     setEditingReel(null)
   }
 
-  const handleSave = async () => {
-    if (!editingReel) return
-    
-    try {
-      await axios.put(`${API_URL}/api/reels/${editingReel.id}`, formData)
-      await fetchData()
-      closeModal()
-    } catch (error) {
-      console.error('Failed to update reel:', error)
-    }
-  }
+  const flowLinkedCount = useMemo(
+    () => reels.filter((reel) => Boolean(reel.config.flow_id?.trim())).length,
+    [reels]
+  )
 
-  const handleSaveAndNext = async () => {
-    if (!editingReel) return
+  const filteredReels = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return reels
+    return reels.filter((reel) => {
+      const caption = reel.caption?.toLowerCase() || ''
+      const keyword = reel.config.trigger_keyword?.toLowerCase() || ''
+      return caption.includes(term) || keyword.includes(term)
+    })
+  }, [reels, search])
 
+  const saveReelConfig = async (openFlowAfterSave: boolean) => {
+    if (!editingReel) return
     const reelFlowId =
       (formData.flow_id || '').trim() ||
       `reel_${editingReel.id.replace(/[^a-zA-Z0-9_]/g, '_')}_flow`
@@ -106,15 +110,23 @@ export default function Dashboard() {
       flow_id: reelFlowId,
     }
 
+    setSaving(true)
     try {
       await axios.put(`${API_URL}/api/reels/${editingReel.id}`, payload)
       await fetchData()
       closeModal()
-      router.push(`/automations/${editingReel.id}`)
+      if (openFlowAfterSave) {
+        router.push(`/automations/${editingReel.id}`)
+      }
     } catch (error) {
-      console.error('Failed to save and continue:', error)
+      console.error('Failed to save reel configuration:', error)
+    } finally {
+      setSaving(false)
     }
   }
+
+  const handleQuickSave = () => saveReelConfig(false)
+  const handleSaveAndConfigureFlow = () => saveReelConfig(true)
 
   if (loading) {
     return (
@@ -164,8 +176,8 @@ export default function Dashboard() {
             <div className="group relative">
               <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl blur opacity-75 group-hover:opacity-100 transition"></div>
               <div className="relative glass rounded-2xl p-8 text-center border border-white/20">
-                <div className="text-5xl font-bold text-white mb-2">{stats.using_default}</div>
-                <div className="text-white/80 text-sm uppercase tracking-wider">Using Default</div>
+                <div className="text-5xl font-bold text-white mb-2">{flowLinkedCount}</div>
+                <div className="text-white/80 text-sm uppercase tracking-wider">Flow Linked</div>
               </div>
             </div>
             <div className="group relative">
@@ -192,9 +204,19 @@ export default function Dashboard() {
           </div>
         )}
 
+        <div className="mb-6">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search reels by caption or keyword..."
+            className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50"
+          />
+        </div>
+
         {/* Reels Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-          {reels.map((reel) => (
+          {filteredReels.map((reel) => (
             <div 
               key={reel.id} 
               className="group relative cursor-pointer transform transition-all duration-300 hover:scale-105 hover:z-10"
@@ -217,6 +239,15 @@ export default function Dashboard() {
                   ) : (
                     <div className="absolute top-3 right-3 bg-gray-600/80 text-white text-xs font-bold px-3 py-1.5 rounded-full">
                       Inactive
+                    </div>
+                  )}
+                  {reel.config.flow_id?.trim() ? (
+                    <div className="absolute top-3 left-3 bg-gradient-to-r from-cyan-400 to-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                      Flow Ready
+                    </div>
+                  ) : (
+                    <div className="absolute top-3 left-3 bg-amber-500/80 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                      No Flow
                     </div>
                   )}
                   <div className="absolute bottom-0 left-0 right-0 p-4 transform translate-y-full group-hover:translate-y-0 transition-transform">
@@ -306,19 +337,22 @@ export default function Dashboard() {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
                   <button
-                    onClick={handleSave}
-                    className="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-6 py-4 rounded-xl font-bold hover:from-pink-600 hover:to-purple-600 transition-all transform hover:scale-105 shadow-lg"
+                    onClick={handleSaveAndConfigureFlow}
+                    disabled={saving}
+                    className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-6 py-4 rounded-xl font-bold hover:from-cyan-600 hover:to-blue-600 transition-all transform hover:scale-105 shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Save Changes
+                    {saving ? 'Saving...' : 'Save & Configure Flow'}
                   </button>
                   <button
-                    onClick={handleSaveAndNext}
-                    className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-6 py-4 rounded-xl font-bold hover:from-cyan-600 hover:to-blue-600 transition-all transform hover:scale-105 shadow-lg"
+                    onClick={handleQuickSave}
+                    disabled={saving}
+                    className="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-6 py-4 rounded-xl font-bold hover:from-pink-600 hover:to-purple-600 transition-all transform hover:scale-105 shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Next: Build Reel Flow
+                    {saving ? 'Saving...' : 'Quick Save'}
                   </button>
                   <button
                     onClick={closeModal}
+                    disabled={saving}
                     className="bg-white/10 text-white px-6 py-4 rounded-xl font-bold hover:bg-white/20 transition-all border border-white/20"
                   >
                     Cancel

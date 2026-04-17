@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import threading
 import uuid
 from copy import deepcopy
 from typing import Any, Callable, Optional, Tuple
@@ -15,6 +16,7 @@ SUPABASE_CONFIG_KEY = os.environ.get("SUPABASE_CONFIG_KEY", "default")
 DM_RATE_LIMIT_PER_HOUR = int(os.environ.get("DM_RATE_LIMIT_PER_HOUR", "200"))
 MAX_ANALYTICS_EVENTS = int(os.environ.get("MAX_ANALYTICS_EVENTS", "5000"))
 MAX_DEDUP_KEYS = int(os.environ.get("MAX_DEDUP_KEYS", "5000"))
+CONFIG_WRITE_LOCK = threading.Lock()
 
 
 def _backend_dir() -> str:
@@ -323,10 +325,11 @@ def _save_config(config: dict[str, Any]) -> None:
 
 
 def _update_config(mutator: Callable[[dict[str, Any]], Any]) -> Any:
-    config = _load_config()
-    result = mutator(config)
-    _save_config(config)
-    return result
+    with CONFIG_WRITE_LOCK:
+        config = _load_config()
+        result = mutator(config)
+        _save_config(config)
+        return result
 
 
 def _now_ts() -> int:

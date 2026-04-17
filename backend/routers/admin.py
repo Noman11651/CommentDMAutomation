@@ -14,6 +14,8 @@ from services.config_manager import (
     get_all_configs,
     update_reel_config,
     get_reel_config,
+    is_reel_configured,
+    get_flow,
     list_flows,
     upsert_flow,
     get_queue_status,
@@ -83,6 +85,7 @@ async def fetch_reels():
         reels = []
         for item in media_items:
             media_id = item["id"]
+            configured = media_id in configs["reels"]
             config = configs["reels"].get(media_id, configs["default"])
             
             reels.append({
@@ -90,7 +93,8 @@ async def fetch_reels():
                 "thumbnail_url": item.get("thumbnail_url", item.get("media_url")),
                 "permalink": item.get("permalink"),
                 "caption": item.get("caption", "")[:100],
-                "config": config
+                "config": config,
+                "is_configured": configured,
             })
         
         return {"reels": reels, "total": len(reels)}
@@ -100,7 +104,24 @@ async def fetch_reels():
 @router.get("/reels/{media_id}")
 async def get_reel(media_id: str):
     config = get_reel_config(media_id)
-    return {"media_id": media_id, "config": config}
+    return {
+        "media_id": media_id,
+        "config": config,
+        "is_configured": is_reel_configured(media_id),
+    }
+
+
+@router.get("/reels/{media_id}/full")
+async def get_reel_full(media_id: str):
+    config = get_reel_config(media_id)
+    flow_id = str(config.get("flow_id", "")).strip()
+    flow = get_flow(flow_id) if flow_id else None
+    return {
+        "media_id": media_id,
+        "config": config,
+        "is_configured": is_reel_configured(media_id),
+        "flow": flow,
+    }
 
 @router.put("/reels/{media_id}")
 async def update_reel(media_id: str, config: ReelConfigUpdate):
@@ -144,6 +165,19 @@ async def get_stats():
 async def get_flows():
     try:
         return {"flows": list_flows()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/flows/{flow_id}")
+async def get_flow_by_id(flow_id: str):
+    try:
+        flow = get_flow(flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail="Flow not found")
+        return {"flow": flow}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
