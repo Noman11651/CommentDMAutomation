@@ -43,6 +43,7 @@ def _default_reel_config() -> dict[str, Any]:
         "trigger_keyword": "",
         "dm_message": "",
         "comment_reply": "",
+        "comment_replies": [],
         "active": False,
         "flow_id": "",
     }
@@ -67,6 +68,10 @@ def _normalize_reel_config(raw: dict[str, Any]) -> dict[str, Any]:
     out["trigger_keyword"] = str(out.get("trigger_keyword", "")).strip()
     out["dm_message"] = str(out.get("dm_message", "")).strip()
     out["comment_reply"] = str(out.get("comment_reply", "")).strip()
+    replies = out.get("comment_replies", [])
+    if not isinstance(replies, list):
+        replies = []
+    out["comment_replies"] = [str(item).strip() for item in replies if str(item).strip()]
     out["flow_id"] = str(out.get("flow_id", "")).strip()
     out["active"] = bool(out.get("active", False))
     return out

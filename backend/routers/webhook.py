@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, Query, HTTPException
+import random
 import re
 import time
 from config import (
@@ -132,6 +133,15 @@ def _is_duplicate_inbound_payload(
     )
 
 
+def _pick_comment_reply(config: dict) -> str:
+    replies = config.get("comment_replies") or []
+    if isinstance(replies, list):
+        clean = [str(item).strip() for item in replies if str(item).strip()]
+        if clean:
+            return random.choice(clean)
+    return str(config.get("comment_reply", "")).strip()
+
+
 def _handle_comment_change(value: dict):
     comment_id = value.get("id")
     comment_text = value.get("text", "")
@@ -207,7 +217,7 @@ def _handle_comment_change(value: dict):
         )
 
     if flow_id and sender_id:
-        flow_result = flow_engine.execute_flow(sender_id, flow_id)
+        flow_result = flow_engine.execute_flow(sender_id, flow_id, trigger_comment_id=comment_id)
         print(f"[webhook] flow_start sender={sender_id} flow={flow_id} result={flow_result}")
     elif dm_message:
         enqueue_dm(
@@ -218,7 +228,7 @@ def _handle_comment_change(value: dict):
             metadata={"media_id": media_id, "comment_id": comment_id},
         )
 
-    comment_reply = config.get("comment_reply", "")
+    comment_reply = _pick_comment_reply(config)
     if comment_reply:
         reply_result = reply_to_comment(comment_id, comment_reply)
         if isinstance(reply_result, dict) and reply_result.get("error"):

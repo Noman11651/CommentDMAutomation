@@ -29,6 +29,7 @@ class ReelConfigUpdate(BaseModel):
     trigger_keyword: str
     dm_message: str
     comment_reply: str
+    comment_replies: list[str] = Field(default_factory=list)
     active: bool
     flow_id: str = ""
 

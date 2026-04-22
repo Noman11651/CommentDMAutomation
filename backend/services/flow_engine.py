@@ -74,7 +74,7 @@ def _clear_contact_state(sender_id: str) -> None:
     config_manager.clear_contact_state(sender_id)
 
 
-def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = None) -> dict[str, Any]:
+def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = None, trigger_comment_id: Optional[str] = None) -> dict[str, Any]:
     flow = config_manager.get_flow(flow_id)
     if not flow:
         return {"error": {"message": f"flow_not_found:{flow_id}"}}
@@ -125,11 +125,16 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
             return {"status": "ended", "reason": "unsupported_condition"}
 
         if step_type == "text":
-            _enqueue_text(
-                sender_id,
-                str(step.get("message", "")),
-                {"flow_id": flow_id, "step_id": current_step_id},
+            recip_id = trigger_comment_id if trigger_comment_id else sender_id
+            recip_type = "comment_id" if trigger_comment_id else "id"
+            config_manager.enqueue_dm(
+                recipient=recip_id,
+                recipient_type=recip_type,
+                payload_type="text",
+                payload={"text": str(step.get("message", ""))},
+                metadata={"flow_id": flow_id, "step_id": current_step_id},
             )
+            trigger_comment_id = None  # Only use comment_id for the first text message
             next_step_id = step.get("next_step_id")
             if not next_step_id:
                 _clear_contact_state(sender_id)
