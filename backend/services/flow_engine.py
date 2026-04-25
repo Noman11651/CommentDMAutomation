@@ -170,6 +170,29 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
 
         if step_type == "quick_reply":
             options = step.get("quick_replies", [])
+
+            # If this is the first step triggered via comment_id, convert to text_with_quick_replies
+            if trigger_comment_id and current_step_id == _first_step_id(flow):
+                config_manager.enqueue_dm(
+                    recipient=trigger_comment_id,
+                    recipient_type="comment_id",
+                    payload_type="text_with_quick_replies",
+                    payload={
+                        "text": str(step.get("message", "")),
+                        "options": options,
+                    },
+                    metadata={"flow_id": flow_id, "step_id": current_step_id},
+                )
+                awaiting_map = {}
+                for option in options:
+                    payload = str(option.get("payload", "")).strip()
+                    next_id = str(option.get("next_step_id", "")).strip()
+                    if payload and next_id:
+                        awaiting_map[payload] = next_id
+                _save_contact_state(sender_id, flow_id, current_step_id, awaiting_map)
+                return {"status": "waiting_quick_reply"}
+
+            # Normal quick_reply (not first step or no comment_id)
             _enqueue_quick_reply(
                 sender_id,
                 str(step.get("message", "")),
