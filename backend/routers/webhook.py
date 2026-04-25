@@ -46,19 +46,13 @@ async def handle_webhook(request: Request):
 
     if body.get("object") != "instagram":
         return {"status": "ignored"}
-    # Same payload can list the same comment twice; also protects before async dedup runs.
-    seen_comment_ids: set[str] = set()
+
     for entry in body.get("entry", []):
         for change in entry.get("changes", []):
             if change.get("field") == "comments":
                 val = change.get("value") or {}
-                cid = str(val.get("id") or "").strip()
-                if cid and cid in seen_comment_ids:
-                    print(f"[webhook] skip duplicate comment in batch comment_id={cid}")
-                    continue
-                if cid:
-                    seen_comment_ids.add(cid)
                 _handle_comment_change(val)
+                break
         for event in entry.get("messaging", []):
             _handle_messaging_event(event)
 
@@ -196,6 +190,15 @@ def _handle_comment_change(value: dict):
     record_analytics("trigger_matched", sender_id=sender_key, media_id=media_id, trigger=trigger)
     print(f"[webhook] matched media_id={media_id} comment_id={comment_id} trigger={trigger}")
 
+    comment_reply = _pick_comment_reply(config)
+    if comment_reply:
+        reply_result = reply_to_comment(comment_id, comment_reply)
+        if isinstance(reply_result, dict) and reply_result.get("error"):
+            print(f"[webhook] reply failed comment_id={comment_id}: {reply_result['error']}")
+        else:
+            print(f"[webhook] comment reply sent comment_id={comment_id}")
+            record_analytics("comment_reply_sent", media_id=media_id, comment_id=comment_id)
+
     dm_message = config.get("dm_message", "")
     flow_id = str(config.get("flow_id", "")).strip()
     now_ts = int(time.time())
@@ -232,15 +235,6 @@ def _handle_comment_change(value: dict):
             payload={"text": dm_message},
             metadata={"media_id": media_id, "comment_id": comment_id},
         )
-
-    comment_reply = _pick_comment_reply(config)
-    if comment_reply:
-        reply_result = reply_to_comment(comment_id, comment_reply)
-        if isinstance(reply_result, dict) and reply_result.get("error"):
-            print(f"[webhook] reply failed comment_id={comment_id}: {reply_result['error']}")
-        else:
-            print(f"[webhook] comment reply sent comment_id={comment_id}")
-            record_analytics("comment_reply_sent", media_id=media_id, comment_id=comment_id)
 
 
 def _extract_payload_from_event(event: dict) -> tuple[str, str, str]:
