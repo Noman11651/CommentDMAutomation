@@ -18,10 +18,23 @@ def _safe_post(path: str, payload: dict, params: dict | None = None):
         return {"error": {"message": str(e), "type": "request_exception"}}
 
 
-def send_dm(comment_id: str, message: str):
+def send_dm(comment_id: str, message: str, quick_replies: list[dict] | None = None):
+    msg_payload = {"text": message}
+    if quick_replies:
+        qr = []
+        for opt in quick_replies:
+            title = str(opt.get("title", "")).strip()[:20]
+            payload = str(opt.get("payload", "")).strip()
+            if title and payload:
+                qr.append(
+                    {"content_type": "text", "title": title, "payload": payload}
+                )
+        if qr:
+            msg_payload["quick_replies"] = qr
+
     payload = {
         "recipient": {"comment_id": comment_id},
-        "message": {"text": message},
+        "message": msg_payload,
     }
     return _safe_post("/me/messages", payload)
 

@@ -127,6 +127,33 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
         if step_type == "text":
             recip_id = trigger_comment_id if trigger_comment_id else sender_id
             recip_type = "comment_id" if trigger_comment_id else "id"
+            next_step_id = step.get("next_step_id")
+            next_step = step_map.get(str(next_step_id)) if next_step_id else None
+
+            # If using comment_id (private reply) and next step is quick_reply, combine them
+            if recip_type == "comment_id" and next_step and next_step.get("type") == "quick_reply":
+                options = next_step.get("quick_replies", [])
+                config_manager.enqueue_dm(
+                    recipient=recip_id,
+                    recipient_type=recip_type,
+                    payload_type="text_with_quick_replies",
+                    payload={
+                        "text": str(step.get("message", "")),
+                        "options": options,
+                    },
+                    metadata={"flow_id": flow_id, "step_id": current_step_id},
+                )
+                # Build awaiting_map for quick_reply step
+                awaiting_map = {}
+                for option in options:
+                    payload = str(option.get("payload", "")).strip()
+                    next_id = str(option.get("next_step_id", "")).strip()
+                    if payload and next_id:
+                        awaiting_map[payload] = next_id
+                _save_contact_state(sender_id, flow_id, str(next_step_id), awaiting_map)
+                return {"status": "waiting_quick_reply"}
+
+            # Normal text message
             config_manager.enqueue_dm(
                 recipient=recip_id,
                 recipient_type=recip_type,
@@ -135,7 +162,6 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
                 metadata={"flow_id": flow_id, "step_id": current_step_id},
             )
             trigger_comment_id = None  # Only use comment_id for the first text message
-            next_step_id = step.get("next_step_id")
             if not next_step_id:
                 _clear_contact_state(sender_id)
                 return {"status": "ended"}

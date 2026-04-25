@@ -20,6 +20,7 @@ interface ReelConfig {
   trigger_keyword: string
   dm_message: string
   comment_reply: string
+  comment_replies?: string[]
   active: boolean
   flow_id?: string
 }
@@ -46,7 +47,10 @@ export default function ReelAutomationFlowPage() {
     if (!reelId) return
     const data = await getReelFull(reelId)
     const config = data.config
-    setReelConfig(config)
+    setReelConfig({
+      ...config,
+      comment_replies: config.comment_replies || [],
+    })
 
     const desiredFlowId =
       (config.flow_id || '').trim() || `reel_${reelId.replace(/[^a-zA-Z0-9_]/g, '_')}_flow`
@@ -189,6 +193,22 @@ export default function ReelAutomationFlowPage() {
                   value={reelConfig.comment_reply}
                   onChange={(e) => updateReelConfig({ comment_reply: e.target.value })}
                   className="mt-1 w-full rounded-xl bg-white/10 border border-white/20 px-3 py-2 text-white"
+                />
+              </label>
+              <label className="text-sm text-white/80 md:col-span-2">
+                Comment Reply Variations (one per line)
+                <textarea
+                  value={(reelConfig.comment_replies || []).join('\n')}
+                  onChange={(e) =>
+                    updateReelConfig({
+                      comment_replies: e.target.value
+                        .split('\n')
+                        .map((line) => line.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  className="mt-1 w-full rounded-xl bg-white/10 border border-white/20 px-3 py-2 text-white min-h-24"
+                  placeholder={'Variation 1\nVariation 2\nVariation 3'}
                 />
               </label>
               <label className="inline-flex items-center gap-2 text-white">

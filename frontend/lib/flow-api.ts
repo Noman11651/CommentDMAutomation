@@ -63,6 +63,7 @@ export interface ReelFullResponse {
     trigger_keyword: string
     dm_message: string
     comment_reply: string
+    comment_replies?: string[]
     active: boolean
     flow_id?: string
   }

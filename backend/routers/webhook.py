@@ -87,6 +87,11 @@ def _send_queue_job(job: dict) -> dict:
         if recipient_type == "comment_id":
             return send_dm(recipient, payload.get("text", ""))
         return send_text_dm(recipient, payload.get("text", ""))
+    if payload_type == "text_with_quick_replies":
+        if recipient_type == "comment_id":
+            return send_dm(recipient, payload.get("text", ""), quick_replies=payload.get("options", []))
+        # Fallback if somehow called with id recipient (shouldn't happen)
+        return send_quick_replies_dm(recipient, payload.get("text", ""), payload.get("options", []))
     if payload_type == "quick_replies":
         opts = payload.get("options", [])
         text = payload.get("text", "")

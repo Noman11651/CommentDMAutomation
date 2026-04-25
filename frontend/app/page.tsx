@@ -10,6 +10,7 @@ interface ReelConfig {
   trigger_keyword: string
   dm_message: string
   comment_reply: string
+  comment_replies?: string[]
   active: boolean
   flow_id?: string
 }
@@ -52,6 +53,7 @@ export default function Dashboard() {
     trigger_keyword: '',
     dm_message: '',
     comment_reply: '',
+    comment_replies: [],
     active: false,
     flow_id: ''
   })
@@ -77,7 +79,11 @@ export default function Dashboard() {
 
   const openEditModal = (reel: Reel) => {
     setEditingReel(reel)
-    setFormData({ ...reel.config, flow_id: reel.config.flow_id || '' })
+    setFormData({
+      ...reel.config,
+      flow_id: reel.config.flow_id || '',
+      comment_replies: reel.config.comment_replies || [],
+    })
   }
 
   const closeModal = () => {
@@ -318,6 +324,29 @@ export default function Dashboard() {
                       className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 border border-white/20 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/50 transition h-28 resize-none"
                       placeholder="Public reply to the comment"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-white font-semibold mb-2 text-sm uppercase tracking-wide">
+                      Comment Reply Variations (one per line)
+                    </label>
+                    <textarea
+                      value={(formData.comment_replies || []).join('\n')}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          comment_replies: e.target.value
+                            .split('\n')
+                            .map((line) => line.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                      className="w-full px-4 py-3 rounded-xl bg-white/10 text-white placeholder-white/40 border border-white/20 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition h-28 resize-none"
+                      placeholder={'Variation 1\nVariation 2\nVariation 3'}
+                    />
+                    <p className="mt-2 text-xs text-white/60">
+                      If provided, one variation is picked randomly for each comment trigger.
+                    </p>
                   </div>
 
                   <p className="text-xs text-white/70">
