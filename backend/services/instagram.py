@@ -147,7 +147,7 @@ def send_button_template_dm(
 
 def reply_to_comment(comment_id: str, message: str):
     payload = {"message": message}
-    return _safe_post(f"/{comment_id}/replies", payload, base_url=IG_GRAPH_API_URL)
+    return _safe_post(f"/{comment_id}/replies", payload)
 
 
 def get_user_follow_status(recipient_id: str):
