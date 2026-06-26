@@ -2,13 +2,14 @@ import requests
 from config import INSTAGRAM_ACCESS_TOKEN, IG_BUSINESS_ACCOUNT_ID
 
 GRAPH_API_URL = "https://graph.facebook.com/v21.0"
+IG_GRAPH_API_URL = "https://graph.instagram.com"
 REQUEST_TIMEOUT = 20
 
 
-def _safe_post(path: str, payload: dict, params: dict | None = None):
+def _safe_post(path: str, payload: dict, params: dict | None = None, base_url: str = GRAPH_API_URL):
     try:
         response = requests.post(
-            f"{GRAPH_API_URL}{path}",
+            f"{base_url}{path}",
             json=payload,
             params=params or {"access_token": INSTAGRAM_ACCESS_TOKEN},
             timeout=REQUEST_TIMEOUT,
@@ -145,7 +146,7 @@ def send_button_template_dm(
 
 def reply_to_comment(comment_id: str, message: str):
     payload = {"message": message}
-    return _safe_post(f"/{comment_id}/replies", payload)
+    return _safe_post(f"/{comment_id}/replies", payload, base_url=IG_GRAPH_API_URL)
 
 
 def get_user_follow_status(recipient_id: str):
