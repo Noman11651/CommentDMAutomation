@@ -371,6 +371,30 @@ def get_all_configs() -> dict[str, Any]:
     return _load_config()
 
 
+def get_instagram_token() -> str:
+    """Return token from Supabase config, falling back to env var."""
+    try:
+        config = _load_config()
+        token = str(config.get("instagram_access_token") or "").strip()
+        if token:
+            return token
+    except Exception:
+        pass
+    return os.environ.get("INSTAGRAM_ACCESS_TOKEN", "").strip()
+
+
+def save_instagram_token(token: str) -> None:
+    token = str(token or "").strip()
+    if not token:
+        raise ValueError("token is empty")
+
+    def _mutate(config: dict[str, Any]) -> None:
+        config["instagram_access_token"] = token
+        config["instagram_token_updated_at"] = _now_ts()
+
+    _update_config(_mutate)
+
+
 def get_reel_config(media_id: str) -> dict[str, Any]:
     config = _load_config()
     return config["reels"].get(media_id, config["default"])

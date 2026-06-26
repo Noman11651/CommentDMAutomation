@@ -1,16 +1,18 @@
 import requests
-from config import INSTAGRAM_ACCESS_TOKEN, IG_BUSINESS_ACCOUNT_ID
+from config import IG_BUSINESS_ACCOUNT_ID
+from services.config_manager import get_instagram_token
 
 GRAPH_API_URL = "https://graph.instagram.com"
 REQUEST_TIMEOUT = 20
 
 
 def _safe_post(path: str, payload: dict, params: dict | None = None):
+    token = get_instagram_token()
     try:
         response = requests.post(
             f"{GRAPH_API_URL}{path}",
             json=payload,
-            params=params or {"access_token": INSTAGRAM_ACCESS_TOKEN},
+            params=params or {"access_token": token},
             timeout=REQUEST_TIMEOUT,
         )
         return response.json()
@@ -156,7 +158,7 @@ def get_user_follow_status(recipient_id: str):
     - is_business_follow_user
     """
     params = {
-        "access_token": INSTAGRAM_ACCESS_TOKEN,
+        "access_token": get_instagram_token(),
         "fields": "is_user_follow_business,is_business_follow_user",
     }
     try:
@@ -172,7 +174,7 @@ def get_user_follow_status(recipient_id: str):
 
 def get_account_media():
     params = {
-        "access_token": INSTAGRAM_ACCESS_TOKEN,
+        "access_token": get_instagram_token(),
         "fields": "id,media_type,media_url,thumbnail_url,permalink,caption",
         "limit": 100,
     }

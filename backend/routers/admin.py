@@ -21,6 +21,8 @@ from services.config_manager import (
     get_queue_status,
     process_dm_queue,
     get_analytics_summary,
+    get_instagram_token,
+    save_instagram_token,
 )
 
 router = APIRouter(prefix="/api", tags=["admin"])
@@ -225,3 +227,33 @@ async def test_reply_comment(request: TestReplyRequest):
         return {"status": "success", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/refresh-token")
+async def refresh_instagram_token():
+    """Refresh IGAA token and save to Supabase. Called by Vercel cron."""
+    import requests as req
+    current_token = get_instagram_token()
+    if not current_token:
+        raise HTTPException(status_code=500, detail="No token found to refresh")
+    try:
+        resp = req.get(
+            "https://graph.instagram.com/refresh_access_token",
+            params={"grant_type": "ig_refresh_token", "access_token": current_token},
+            timeout=15,
+        )
+        data = resp.json()
+    except req.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Refresh request failed: {e}")
+
+    if "error" in data:
+        raise HTTPException(status_code=400, detail=f"Meta error: {data['error']}")
+
+    new_token = data.get("access_token", "").strip()
+    if not new_token:
+        raise HTTPException(status_code=500, detail="Empty token in response")
+
+    save_instagram_token(new_token)
+    expires_in = data.get("expires_in", 0)
+    print(f"[token] refreshed successfully, expires_in={expires_in}")
+    return {"status": "ok", "expires_in": expires_in}
