@@ -5,42 +5,25 @@ from services import config_manager
 from services import instagram
 
 
-def _enqueue_text(recipient_id: str, text: str, metadata: dict[str, Any]) -> None:
-    config_manager.enqueue_dm(
-        recipient=recipient_id,
-        recipient_type="id",
-        payload_type="text",
-        payload={"text": text},
-        metadata=metadata,
-    )
+def _send_text(recipient_id: str, text: str) -> dict[str, Any]:
+    return instagram.send_text_dm(recipient_id, text)
 
 
-def _enqueue_quick_reply(
-    recipient_id: str, text: str, options: list[dict[str, Any]], metadata: dict[str, Any]
-) -> None:
-    config_manager.enqueue_dm(
-        recipient=recipient_id,
-        recipient_type="id",
-        payload_type="quick_replies",
-        payload={"text": text, "options": options},
-        metadata=metadata,
-    )
+def _send_quick_reply(recipient_id: str, text: str, options: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(options) <= 3:
+        result = instagram.send_button_text_template_dm(recipient_id, text, options)
+        if not result.get("error"):
+            return result
+    return instagram.send_quick_replies_dm(recipient_id, text, options)
 
 
-def _enqueue_button_template(
-    recipient_id: str, step: dict[str, Any], metadata: dict[str, Any]
-) -> None:
-    config_manager.enqueue_dm(
-        recipient=recipient_id,
-        recipient_type="id",
-        payload_type="button_template",
-        payload={
-            "title": step.get("title", "Info"),
-            "subtitle": step.get("subtitle", ""),
-            "image_url": step.get("image_url", ""),
-            "buttons": step.get("buttons", []),
-        },
-        metadata=metadata,
+def _send_button_template(recipient_id: str, step: dict[str, Any]) -> dict[str, Any]:
+    return instagram.send_button_template_dm(
+        recipient_id,
+        step.get("title", "Info"),
+        step.get("subtitle", ""),
+        step.get("image_url", ""),
+        step.get("buttons", []),
     )
 
 
@@ -133,17 +116,7 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
             # If using comment_id (private reply) and next step is quick_reply, combine them
             if recip_type == "comment_id" and next_step and next_step.get("type") == "quick_reply":
                 options = next_step.get("quick_replies", [])
-                config_manager.enqueue_dm(
-                    recipient=recip_id,
-                    recipient_type=recip_type,
-                    payload_type="text_with_quick_replies",
-                    payload={
-                        "text": str(step.get("message", "")),
-                        "options": options,
-                    },
-                    metadata={"flow_id": flow_id, "step_id": current_step_id},
-                )
-                # Build awaiting_map for quick_reply step
+                instagram.send_dm(recip_id, str(step.get("message", "")), quick_replies=options)
                 awaiting_map = {}
                 for option in options:
                     payload = str(option.get("payload", "")).strip()
@@ -154,14 +127,11 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
                 return {"status": "waiting_quick_reply"}
 
             # Normal text message
-            config_manager.enqueue_dm(
-                recipient=recip_id,
-                recipient_type=recip_type,
-                payload_type="text",
-                payload={"text": str(step.get("message", ""))},
-                metadata={"flow_id": flow_id, "step_id": current_step_id},
-            )
-            trigger_comment_id = None  # Only use comment_id for the first text message
+            if recip_type == "comment_id":
+                instagram.send_dm(recip_id, str(step.get("message", "")))
+            else:
+                _send_text(recip_id, str(step.get("message", "")))
+            trigger_comment_id = None
             if not next_step_id:
                 _clear_contact_state(sender_id)
                 return {"status": "ended"}
@@ -171,18 +141,9 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
         if step_type == "quick_reply":
             options = step.get("quick_replies", [])
 
-            # If this is the first step triggered via comment_id, convert to text_with_quick_replies
+            # If this is the first step triggered via comment_id, send via comment DM
             if trigger_comment_id and current_step_id == _first_step_id(flow):
-                config_manager.enqueue_dm(
-                    recipient=trigger_comment_id,
-                    recipient_type="comment_id",
-                    payload_type="text_with_quick_replies",
-                    payload={
-                        "text": str(step.get("message", "")),
-                        "options": options,
-                    },
-                    metadata={"flow_id": flow_id, "step_id": current_step_id},
-                )
+                instagram.send_dm(trigger_comment_id, str(step.get("message", "")), quick_replies=options)
                 awaiting_map = {}
                 for option in options:
                     payload = str(option.get("payload", "")).strip()
@@ -192,13 +153,8 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
                 _save_contact_state(sender_id, flow_id, current_step_id, awaiting_map)
                 return {"status": "waiting_quick_reply"}
 
-            # Normal quick_reply (not first step or no comment_id)
-            _enqueue_quick_reply(
-                sender_id,
-                str(step.get("message", "")),
-                options,
-                {"flow_id": flow_id, "step_id": current_step_id},
-            )
+            # Normal quick_reply
+            _send_quick_reply(sender_id, str(step.get("message", "")), options)
             awaiting_map = {}
             for option in options:
                 payload = str(option.get("payload", "")).strip()
@@ -209,11 +165,7 @@ def execute_flow(sender_id: str, flow_id: str, start_step_id: Optional[str] = No
             return {"status": "waiting_quick_reply"}
 
         if step_type == "button_template":
-            _enqueue_button_template(
-                sender_id,
-                step,
-                {"flow_id": flow_id, "step_id": current_step_id},
-            )
+            _send_button_template(sender_id, step)
             awaiting_map = {}
             for button in step.get("buttons", []):
                 if button.get("type") != "postback":
