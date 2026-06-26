@@ -146,8 +146,11 @@ def send_button_template_dm(
 
 
 def reply_to_comment(comment_id: str, message: str):
-    payload = {"message": message}
-    return _safe_post(f"/{comment_id}/replies", payload)
+    return _safe_post(
+        f"/{comment_id}/replies",
+        {},
+        params={"access_token": INSTAGRAM_PAGE_TOKEN, "message": message},
+    )
 
 
 def get_user_follow_status(recipient_id: str):
