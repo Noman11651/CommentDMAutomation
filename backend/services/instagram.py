@@ -1,7 +1,7 @@
 import requests
 from config import INSTAGRAM_ACCESS_TOKEN, IG_BUSINESS_ACCOUNT_ID
 
-GRAPH_API_URL = "https://graph.instagram.com"
+GRAPH_API_URL = "https://graph.facebook.com/v21.0"
 REQUEST_TIMEOUT = 20
 
 

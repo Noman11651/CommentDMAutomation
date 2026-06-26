@@ -230,7 +230,7 @@ def _supabase_get_json() -> Optional[dict[str, Any]]:
         _supabase_table_url(),
         params=params,
         headers=_supabase_headers(),
-        timeout=15,
+        timeout=8,
     )
     response.raise_for_status()
     payload = response.json()
@@ -299,7 +299,9 @@ def _load_config() -> dict[str, Any]:
         try:
             cfg = _supabase_get_json()
         except requests.RequestException as e:
-            raise RuntimeError(f"Supabase read failed: {e}") from e
+            print(f"[config] Supabase read failed, falling back to file: {e}")
+            cfg = _try_bootstrap_from_file() or _default_config()
+            return _normalize_config_schema(cfg)
         if cfg is None:
             cfg = _try_bootstrap_from_file() or _default_config()
             _supabase_set_json(_normalize_config_schema(cfg))
