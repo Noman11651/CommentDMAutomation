@@ -149,7 +149,7 @@ def reply_to_comment(comment_id: str, message: str):
     return _safe_post(
         f"/{comment_id}/replies",
         {},
-        params={"access_token": INSTAGRAM_PAGE_TOKEN, "message": message},
+        params={"access_token": INSTAGRAM_ACCESS_TOKEN, "message": message},
     )
 
 
