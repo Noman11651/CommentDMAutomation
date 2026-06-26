@@ -226,12 +226,21 @@ def _supabase_get_json() -> Optional[dict[str, Any]]:
         "select": SUPABASE_VALUE_COLUMN,
         "limit": 1,
     }
-    response = requests.get(
-        _supabase_table_url(),
-        params=params,
-        headers=_supabase_headers(),
-        timeout=8,
-    )
+    last_exc: Exception = None
+    for timeout in (5, 8):
+        try:
+            response = requests.get(
+                _supabase_table_url(),
+                params=params,
+                headers=_supabase_headers(),
+                timeout=timeout,
+            )
+            break
+        except requests.RequestException as exc:
+            last_exc = exc
+            print(f"[config] Supabase attempt timeout={timeout} failed: {exc}")
+    else:
+        raise last_exc
     response.raise_for_status()
     payload = response.json()
     if not payload:
@@ -299,9 +308,7 @@ def _load_config() -> dict[str, Any]:
         try:
             cfg = _supabase_get_json()
         except requests.RequestException as e:
-            print(f"[config] Supabase read failed, falling back to file: {e}")
-            cfg = _try_bootstrap_from_file() or _default_config()
-            return _normalize_config_schema(cfg)
+            raise RuntimeError(f"Supabase read failed: {e}") from e
         if cfg is None:
             cfg = _try_bootstrap_from_file() or _default_config()
             _supabase_set_json(_normalize_config_schema(cfg))
